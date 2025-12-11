@@ -1,12 +1,8 @@
-"""
-Ant Colony Optimization Agents
-Implements two versions of ant behavior for food collection.
-Mesa 3.x compatible implementation.
-"""
 import mesa
 import random
 import networkx as nx
 
+print("DEBUG: agents.py module loaded")
 
 class BaseAnt(mesa.Agent):
     """Base ant agent with common behavior for both versions."""
@@ -104,6 +100,7 @@ class BaseAnt(mesa.Agent):
 
 class AntV1(BaseAnt):
     """Version 1: Returns food directly to the anthill."""
+    
     
     def _get_deposit_target(self):
         return self.model.anthill

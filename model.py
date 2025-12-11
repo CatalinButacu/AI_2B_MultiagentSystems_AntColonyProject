@@ -21,13 +21,15 @@ class AntColonyModel(mesa.Model):
         seed: Random seed for reproducibility
     """
     
-    def __init__(self, num_nodes=15, num_ants=10, decay_rate=0.1, version=1, seed=None):
+    def __init__(self, num_nodes=15, num_ants=10, decay_rate=0.1, version=1, min_food=1, max_food=5, seed=None):
         super().__init__(seed=seed)
         
         self.num_nodes = num_nodes
         self.num_ants = num_ants
         self.decay_rate = decay_rate
         self.version = version
+        self.min_food = min_food
+        self.max_food = max_food
         
         # Create more realistic graph structure
         # For larger graphs, use a combination of strategies for realism
@@ -39,7 +41,6 @@ class AntColonyModel(mesa.Model):
             # Large graphs: Use a more realistic approach
             # Create a spatial graph where nodes are positioned in 2D space
             # and connected based on proximity (like real ant foraging terrain)
-            import random
             if seed:
                 random.seed(seed)
             
@@ -98,8 +99,8 @@ class AntColonyModel(mesa.Model):
         # Node 0 is the anthill
         self.anthill = 0
         
-        # Initialize food values (0 for anthill, random 1-5 for others)
-        self.food_values = [0] + [random.randint(1, 5) for _ in range(num_nodes - 1)]
+        # Initialize food values (0 for anthill, random min-max for others)
+        self.food_values = [0] + [random.randint(self.min_food, self.max_food) for _ in range(num_nodes - 1)]
         self.initial_food = sum(self.food_values)
         
         # Track food deposited at each node
@@ -115,7 +116,6 @@ class AntColonyModel(mesa.Model):
         for _ in range(num_ants):
             AntClass(self)
         
-        # Data collector
         self.datacollector = mesa.DataCollector(
             model_reporters={
                 "Food Remaining": lambda m: sum(m.food_values),
@@ -125,6 +125,8 @@ class AntColonyModel(mesa.Model):
                 ),
             }
         )
+        self.running = True
+        self.steps = 0
     
     def step(self):
         """Advance the model by one step."""
@@ -136,6 +138,8 @@ class AntColonyModel(mesa.Model):
         
         # Decay pheromone weights
         self._decay_weights()
+        
+        self.steps += 1
     
     def _decay_weights(self):
         """Reduce edge weights by decay rate (minimum 0)."""
