@@ -113,7 +113,8 @@ class AntColonyModel(mesa.Model):
     
     def step(self):
         """Advance the simulation by one step."""
-        if self.all_food_collected():
+        #if self.all_food_collected():
+        if self.food_at_deposits.get(self.anthill, 0) >= self.initial_food:
             self.running = False
             return
         
