@@ -131,6 +131,7 @@ def GraphVisualization(model):
     ax.axis('off')
     plt.tight_layout()    
     solara.FigureMatplotlib(fig)
+    plt.close(fig)
 
 
 def MainLayout(model):
