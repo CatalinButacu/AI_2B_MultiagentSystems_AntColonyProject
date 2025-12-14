@@ -107,9 +107,9 @@ def GraphVisualization(model):
                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.9, edgecolor='black'), zorder=30)
         else:
             if counts['carrying'] > 0:
-                ax.plot(x, y, marker='D', markersize=10, color='#8B4513', markeredgecolor='white', markeredgewidth=1.5, zorder=15)
+                ax.plot(x, y, marker='D', markersize=10, color='#8B4513', markeredgecolor='white', markeredgewidth=1.5, zorder=15, alpha=0.7)
             else:
-                ax.plot(x, y, marker='o', markersize=8, color='black', markeredgecolor='white', markeredgewidth=1.5, zorder=15)
+                ax.plot(x, y, marker='o', markersize=8, color='black', markeredgecolor='white', markeredgewidth=1.5, zorder=15, alpha=0.7)
 
 
 
@@ -145,42 +145,53 @@ def MainLayout(model):
             else:
                 plot_component(model)   
             
-            #AntPosTable(model)      
+            AntPosTable(model)      
 
 
 def AntPosTable(model):
     with solara.Card("Ant Positions"):
         ants = list(model.agents)
         rows = []
+        ct = 4
         
-        # Group ants into rows of 3
-        for i in range(0, len(ants), 3):
-            group = ants[i:i+3]
-            row_cells = []
-            
+        for i in range(0, len(ants), ct):
+            group = ants[i:i+ct]
+            cells = []
             for j, ant in enumerate(group, start=i+1):
-                status = "Carrying" if ant.carrying_food else "Searching"
-                position = "Home" if ant.position == model.anthill else f"Node {ant.position}"
-                ant_name = f"<span style='color:#e94560'>Ant #{j}</span>"
-                row_cells.extend([ant_name, f"*{position}*", f"*{status}*"])
+                if ant.carrying_food:
+                    status = "<span style='color:#4ade80'>Carrying</span>"
+                else:
+                    status = "Searching"
+                if ant.previous_position is not None and ant.previous_position != ant.position:
+                    prev = "H" if ant.previous_position == model.anthill else str(ant.previous_position)
+                    curr = "H" if ant.position == model.anthill else str(ant.position)
+                    pos = f"{prev}→{curr}"
+                else:
+                    pos = "H" if ant.position == model.anthill else str(ant.position)
+                cells.append(f"<td style='color:#e94560'>{j}</td><td>{pos}</td><td>{status}</td>")
             
-            # Pad if less than 3 ants in last row   
-            while len(row_cells) < 9:
-                row_cells.extend(["", "", ""])
-            
-            rows.append("| " + " | ".join(row_cells) + " |")
+            while len(cells) < ct:
+                cells.append("<td></td><td></td><td></td>")
+            rows.append(f"<tr>{''.join(cells)}</tr>")
         
-        header = "| Ant | Position | Status | Ant | Position | Status | Ant | Position | Status |"
-        separator = "|:---:|:--------:|:------:|:---:|:--------:|:------:|:---:|:--------:|:------:|"
-        table_md = header + "\n" + separator + "\n" + "\n".join(rows)
-        solara.Markdown(table_md)
+        html = f"""
+        <table style='font-size: 11px; border-collapse: collapse; width: 100%; text-align: center;'>
+            <thead><tr>
+                <th>Ant</th><th>Tr</th><th>St</th>
+                <th>Ant</th><th>Tr</th><th>St</th>
+                <th>Ant</th><th>Tr</th><th>St</th>
+                <th>Ant</th><th>Tr</th><th>St</th>
+            </tr></thead>
+            <tbody>{''.join(rows)}</tbody>
+        </table>"""
+        solara.HTML(tag="div", unsafe_innerHTML=html)
 
 if __name__ == "__main__":
     
     model_params = {
         "num_nodes": {
             "type": "SliderInt",
-            "value": 40,
+            "value": 21,
             "label": "Number of Nodes",
             "min": 10,
             "max": 150,
@@ -188,11 +199,11 @@ if __name__ == "__main__":
         },
         "num_ants": {
             "type": "SliderInt",
-            "value": 15,
+            "value": 12,
             "label": "Number of Ants",
-            "min": 5,
-            "max": 50,
-            "step": 1,
+            "min": 4,
+            "max": 60,
+            "step": 4,
         },
         "decay_rate": {
             "type": "SliderFloat",
@@ -210,7 +221,7 @@ if __name__ == "__main__":
         },
         "min_food": {
             "type": "SliderInt",
-            "value": 2,
+            "value": 1,
             "label": "Min Food per Node",
             "min": 0,
             "max": 10,
