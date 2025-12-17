@@ -15,6 +15,9 @@ class AntColonyModel(mesa.Model):
         version: int = 1, 
         min_food: int = 1, 
         max_food: int = 5, 
+        use_pheromones: bool = True,
+        pheromone_follow_prob: float = 0.8,
+        clustering: int = 0,
         seed: int = 2025 # None
     ):
         super().__init__(seed=seed)
@@ -27,6 +30,9 @@ class AntColonyModel(mesa.Model):
         self.version = version
         self.min_food = min_food
         self.max_food = max_food
+        self.use_pheromones = use_pheromones
+        self.pheromone_follow_prob = pheromone_follow_prob
+        self.clustering = clustering
         
         # Build graph
         self.graph, self.node_positions = self._build_graph(num_nodes)
@@ -41,7 +47,7 @@ class AntColonyModel(mesa.Model):
         
         # Initialize edge weights
         for u, v in self.graph.edges():
-            self.graph.edges[u, v]['weight'] = 0.0
+            self.graph.edges[u, v]['weight'] = 0.0  # Initialize edge weights to 0      
         
         # Create ants using Factory pattern
         from agents import AntFactory
@@ -61,8 +67,10 @@ class AntColonyModel(mesa.Model):
     
     def _build_graph(self, num_nodes: int) -> Tuple[nx.Graph, Dict[int, Tuple[float, float]]]:
         """Creates a spatial graph with proximity-based edges."""
-        # Generate random positions
+        
         positions = {0: (0.5, 0.5)}  # Anthill at center
+        
+        # Always uniform node distribution
         for i in range(1, num_nodes):
             positions[i] = (random.random(), random.random())
         
@@ -108,8 +116,44 @@ class AntColonyModel(mesa.Model):
                 graph.add_edge(*best_pair)
     
     def _init_food(self, num_nodes: int) -> List[int]:
-        """Initializes food values for each node."""
-        return [0] + [random.randint(self.min_food, self.max_food) for _ in range(num_nodes - 1)]
+        """Initializes food values - clustered or uniform based on clustering param."""
+        if self.clustering == 0:
+            # Uniform: all nodes get random food
+            return [0] + [random.randint(self.min_food, self.max_food) for _ in range(num_nodes - 1)]
+        else:
+            # Clustered: only some nodes have food, concentrated in clusters
+            food_values = [0] * num_nodes  # Start with no food
+            
+            # Select cluster centers (random nodes)
+            num_clusters = max(1, min(self.clustering, 8))
+            available_nodes = list(range(1, num_nodes))
+            
+            if len(available_nodes) < num_clusters:
+                cluster_centers = available_nodes
+            else:
+                cluster_centers = random.sample(available_nodes, num_clusters)
+            
+            # For each cluster center, give food to nearby nodes
+            nodes_with_food = set()
+            food_per_cluster = max(3, (num_nodes - 1) // (num_clusters * 2))
+            
+            for center in cluster_centers:
+                # Find nodes closest to this center (using graph positions)
+                center_pos = self.node_positions[center]
+                distances = []
+                for node in range(1, num_nodes):
+                    if node not in nodes_with_food:
+                        dist = self._distance(self.node_positions[node], center_pos)
+                        distances.append((node, dist))
+                
+                distances.sort(key=lambda x: x[1])
+                
+                # Give food to the closest nodes
+                for node, _ in distances[:food_per_cluster]:
+                    food_values[node] = random.randint(self.min_food, self.max_food)
+                    nodes_with_food.add(node)
+            
+            return food_values
     
     def step(self):
         """Advance the simulation by one step."""

@@ -42,7 +42,9 @@ def GraphVisualization(model):
     fig_size = min(shared_config.max_fig_size, max(shared_config.min_fig_size, 6 + len(G.nodes()) / 30))
     fig, ax = plt.subplots(figsize=(fig_size, fig_size))
     
-    base_node_size = max(shared_config.base_node_size, 800 - len(G.nodes()) * 3)
+    num_nodes = len(G.nodes())
+    base_node_size = max(20, 800 / (1 + num_nodes * 0.02))
+    
     node_colors = []
     node_sizes = []
     
@@ -52,7 +54,8 @@ def GraphVisualization(model):
             node_sizes.append(base_node_size * 1.5)
         elif model.food_values[node] > 0:
             node_colors.append(shared_config.color_food)
-            node_sizes.append(base_node_size + model.food_values[node] * 20)
+            food_bonus = model.food_values[node] * max(2, 20 / (1 + num_nodes * 0.01))
+            node_sizes.append(base_node_size + food_bonus)
         else:
             node_colors.append(shared_config.color_empty)
             node_sizes.append(base_node_size * 0.7)
@@ -150,7 +153,7 @@ def MainLayout(model):
 
 
 def AntPosTable(model):
-    with solara.Card("Ant Positions"):
+    with solara.Card("Ant Activity"):
         ants = list(model.agents)
         rows = []
         ct = 4
@@ -192,10 +195,10 @@ if __name__ == "__main__":
     model_params = {
         "num_nodes": {
             "type": "SliderInt",
-            "value": 21,
+            "value": 81,
             "label": "Number of Nodes",
             "min": 10,
-            "max": 150,
+            "max": 500,
             "step": 5,
         },
         "num_ants": {
@@ -203,8 +206,13 @@ if __name__ == "__main__":
             "value": 12,
             "label": "Number of Ants",
             "min": 4,
-            "max": 60,
-            "step": 4,
+            "max": 100,
+            "step": 5,
+        },
+        "use_pheromones": {
+            "type": "Checkbox",
+            "value": True,
+            "label": "Use Pheromones",
         },
         "decay_rate": {
             "type": "SliderFloat",
@@ -213,6 +221,22 @@ if __name__ == "__main__":
             "min": 0.01,
             "max": 0.5,
             "step": 0.01,
+        },
+        "pheromone_follow_prob": {
+            "type": "SliderFloat",
+            "value": 0.8,
+            "label": "Pheromone Follow Probability",
+            "min": 0.6,
+            "max": 1.0,
+            "step": 0.05,
+        },
+        "clustering": {
+            "type": "SliderInt",
+            "value": 4,
+            "label": "Food Clustering (0=everywhere)",
+            "min": 0,
+            "max": 8,
+            "step": 1,
         },
         "version": {
             "type": "Select",
@@ -239,9 +263,10 @@ if __name__ == "__main__":
     }
     
     plot_component = make_plot_component(["Food Collected"])
-
+    initial_params = {key: param["value"] for key, param in model_params.items()}
+    
     page = SolaraViz(
-        model=AntColonyModel(),
+        model=AntColonyModel(**initial_params),
         components=[MainLayout],
         model_params=model_params,
         name="Topic 4 - Ant Colony Optimization"

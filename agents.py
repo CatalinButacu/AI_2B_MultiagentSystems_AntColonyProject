@@ -83,18 +83,21 @@ class AntAgent(mesa.Agent):
         self._try_collect_food()
     
     def _choose_next_node(self, neighbors: List[int]) -> int:
-        weighted = [
-            (n, self.model.graph.edges[self.position, n]['weight'])
-            for n in neighbors
-            if self.model.graph.edges[self.position, n]['weight'] > 0
-            and n not in self.path[-3:]
-        ]
+        # If pheromones enabled AND random check passes, try to follow trails
+        if self.model.use_pheromones and random.random() < self.model.pheromone_follow_prob:
+            weighted = [
+                (n, self.model.graph.edges[self.position, n]['weight'])
+                for n in neighbors
+                if self.model.graph.edges[self.position, n]['weight'] > 0
+                and n not in self.path[-3:]
+            ]
+            
+            if weighted:
+                max_weight = max(w for _, w in weighted)
+                best = [n for n, w in weighted if w == max_weight]
+                return random.choice(best)
         
-        if weighted:
-            max_weight = max(w for _, w in weighted)
-            best = [n for n, w in weighted if w == max_weight]
-            return random.choice(best)
-        
+        # Random movement (fallback or when pheromones disabled/probability failed)
         available = [n for n in neighbors if n != self.path[-1]] if len(self.path) > 1 else neighbors
         return random.choice(available if available else neighbors)
     
@@ -125,6 +128,9 @@ class AntAgent(mesa.Agent):
             return random.choice(list(self.model.graph.neighbors(self.position)))
     
     def _leave_pheromone(self, next_node: int):
+        if not self.model.use_pheromones:
+            return
+        
         edge = (min(self.position, next_node), max(self.position, next_node))
         if self.model.graph.has_edge(*edge):
             self.model.graph.edges[edge]['weight'] += 1
