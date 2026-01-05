@@ -5,180 +5,256 @@ from mesa.visualization import SolaraViz, make_plot_component
 from model import AntColonyModel
 from dataclasses import dataclass
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
 
-# Configure matplotlib to prevent memory leaks
 plt.rcParams['figure.max_open_warning'] = 5
 import matplotlib
 matplotlib.use('Agg')
 
-# Intrinsic State (shared & immutable configuration)
+
 @dataclass(frozen=True)
 class VisualizationConfig:
-    color_anthill: str = '#e94560'
-    color_food: str = '#098698'
-    color_empty: str = '#BAB1AD'
-    color_edge_strong: str = '#4ade80'
-    color_edge_weak: str = '#AEC0C2'
-    color_edge_none: str = '#505A63'
-    max_fig_size: int = 10
-    min_fig_size: int = 6
-    base_node_size: int = 50
+    anthill_color: str = '#2c3e50'
+    food_node_color: str = '#27ae60'
+    empty_node_color: str = '#bdc3c7'
+    strong_pheromone_color: str = '#3498db'
+    weak_pheromone_color: str = '#95a5a6'
+    no_pheromone_color: str = '#ecf0f1'
+    ant_searching_color: str = '#34495e'
+    ant_carrying_color: str = '#e74c3c'
+    maximum_figure_size: int = 10
+    minimum_figure_size: int = 6
+    base_node_size: int = 30
 
-# Shared flyweight instance
-shared_config = VisualizationConfig()
+
+visualization_config = VisualizationConfig()
 
 
-# Extrinsic State (model data)
-def GraphVisualization(model):
+def get_node_layout(model, graph):
+    if not hasattr(model, 'cached_layout'):
+        model.cached_layout = getattr(
+            model, 
+            'node_positions', 
+            nx.spring_layout(graph, seed=42, k=1.5/len(graph.nodes())**0.5, iterations=50)
+        )
+    return model.cached_layout
+
+
+def calculate_node_appearance(model, node, total_nodes, calculated_node_size):
+    if node == model.anthill_node:
+        return visualization_config.anthill_color, calculated_node_size * 1.5
     
-    G = model.graph
+    if model.food_at_nodes[node] > 0:
+        food_size_bonus = model.food_at_nodes[node] * max(2, 20 / (1 + total_nodes * 0.01))
+        return visualization_config.food_node_color, calculated_node_size + food_size_bonus
     
-    if not hasattr(model, '_viz_layout'):
-        model._viz_layout = getattr(model, 'node_positions', nx.spring_layout(G, seed=42, k=1.5/len(G.nodes())**0.5, iterations=50))
+    return visualization_config.empty_node_color, calculated_node_size * 0.7
+
+
+def get_edge_style(edge_weight, maximum_edge_weight):
+    if edge_weight > 0:
+        edge_width = min(0.5 + edge_weight * 0.5, 3.0)
+        edge_alpha = min(0.4 + edge_weight / max(maximum_edge_weight, 1) * 0.4, 0.8)
+        edge_color = (
+            visualization_config.strong_pheromone_color 
+            if edge_weight > 1 
+            else visualization_config.weak_pheromone_color
+        )
+    else:
+        edge_width = 0.5
+        edge_alpha = 0.35
+        edge_color = '#95a5a6'
     
-    pos = model._viz_layout
+    return edge_width, edge_alpha, edge_color
+
+
+def draw_graph_edges(graph, node_positions, axes):
+    all_edge_weights = [data['weight'] for _, _, data in graph.edges(data=True)]
+    maximum_edge_weight = max(all_edge_weights) if all_edge_weights else 1
     
-    fig_size = min(shared_config.max_fig_size, max(shared_config.min_fig_size, 6 + len(G.nodes()) / 30))
-    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+    for source_node, target_node, edge_data in graph.edges(data=True):
+        edge_width, edge_alpha, edge_color = get_edge_style(edge_data['weight'], maximum_edge_weight)
+        
+        nx.draw_networkx_edges(
+            graph, 
+            node_positions, 
+            edgelist=[(source_node, target_node)], 
+            width=edge_width, 
+            edge_color=edge_color, 
+            alpha=edge_alpha, 
+            ax=axes
+        )
+
+
+def build_node_labels(model, graph):
+    node_labels = {}
+    for node in graph.nodes():
+        if node == model.anthill_node:
+            food_deposited = model.food_deposited_at_nodes.get(model.anthill_node, 0)
+            node_labels[node] = f"HOME\n{food_deposited}"
+        else:
+            initial_food = model.initial_food_at_nodes[node]
+            current_food = model.food_at_nodes[node]
+            node_labels[node] = f"id{node}\n{current_food}/{initial_food}"
+    return node_labels
+
+
+def count_ants_at_nodes(model):
+    ants_at_each_node = {}
+    for ant in model.agents:
+        if ant.current_node not in ants_at_each_node:
+            ants_at_each_node[ant.current_node] = {'total': 0, 'carrying': 0}
+        ants_at_each_node[ant.current_node]['total'] += 1
+        if ant.is_carrying_food:
+            ants_at_each_node[ant.current_node]['carrying'] += 1
+    return ants_at_each_node
+
+
+def draw_ant_markers(model, node_positions, axes, ants_at_each_node):
+    for node, ant_counts in ants_at_each_node.items():
+        if node not in node_positions: 
+            continue
+        x_position, y_position = node_positions[node]
+        
+        if node == model.anthill_node:
+            axes.text(
+                x_position, 
+                y_position - 0.06, 
+                f"{ant_counts['total']}", 
+                fontsize=9, 
+                ha='center', 
+                va='center', 
+                fontweight='normal',
+                bbox={'boxstyle': 'round,pad=0.15', 'facecolor': 'white', 'alpha': 0.8, 'edgecolor': '#95a5a6', 'linewidth': 0.5}, 
+                zorder=30
+            )
+        elif ant_counts['carrying'] > 0:
+            axes.plot(
+                x_position, y_position, marker='o', markersize=4, 
+                color=visualization_config.ant_carrying_color, markeredgecolor='none', zorder=15, alpha=0.8
+            )
+        else:
+            axes.plot(
+                x_position, y_position, marker='o', markersize=3, 
+                color=visualization_config.ant_searching_color, markeredgecolor='none', zorder=15, alpha=0.7
+            )
+
+
+def create_legend_elements():
+    return [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=visualization_config.anthill_color, markersize=6, label='Anthill', markeredgecolor='none'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=visualization_config.food_node_color, markersize=6, label='Food', markeredgecolor='none'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=visualization_config.empty_node_color, markersize=6, label='Empty', markeredgecolor='none'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=visualization_config.ant_searching_color, markersize=4, label='Searching', markeredgecolor='none'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=visualization_config.ant_carrying_color, markersize=4, label='Carrying', markeredgecolor='none'),
+    ]
+
+
+def graph_visualization(model):
+    graph = model.graph
+    node_positions = get_node_layout(model, graph)
     
-    num_nodes = len(G.nodes())
-    base_node_size = max(20, 800 / (1 + num_nodes * 0.02))
+    figure_size = min(
+        visualization_config.maximum_figure_size, 
+        max(visualization_config.minimum_figure_size, 6 + len(graph.nodes()) / 30)
+    )
+    figure, axes = plt.subplots(figsize=(figure_size, figure_size))
+    
+    total_nodes = len(graph.nodes())
+    calculated_node_size = max(8, 400 / (1 + total_nodes * 0.04))
     
     node_colors = []
     node_sizes = []
-    
-    for node in G.nodes():
-        if node == model.anthill:
-            node_colors.append(shared_config.color_anthill)
-            node_sizes.append(base_node_size * 1.5)
-        elif model.food_values[node] > 0:
-            node_colors.append(shared_config.color_food)
-            food_bonus = model.food_values[node] * max(2, 20 / (1 + num_nodes * 0.01))
-            node_sizes.append(base_node_size + food_bonus)
-        else:
-            node_colors.append(shared_config.color_empty)
-            node_sizes.append(base_node_size * 0.7)
+    for node in graph.nodes():
+        color, size = calculate_node_appearance(model, node, total_nodes, calculated_node_size)
+        node_colors.append(color)
+        node_sizes.append(size)
             
-    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color=node_colors, 
-                          ax=ax, edgecolors='white', linewidths=1.5)
+    nx.draw_networkx_nodes(
+        graph, node_positions, node_size=node_sizes, node_color=node_colors, 
+        ax=axes, edgecolors='#34495e', linewidths=0.5, alpha=0.9
+    )
     
-    max_weight = max([data['weight'] for _, _, data in G.edges(data=True)] or [1])
+    draw_graph_edges(graph, node_positions, axes)
     
-    for u, v, data in G.edges(data=True):
-        weight = data['weight']
-        if weight > 0:
-            width = min(1 + weight * 2, 8)
-            alpha = min(0.3 + weight / max(max_weight, 1), 1.0)
-            color = shared_config.color_edge_strong if weight > 1 else shared_config.color_edge_weak
-        else:
-            width = 0.5
-            alpha = 0.2
-            color = shared_config.color_edge_none
-        
-        nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], width=width, 
-                              edge_color=color, alpha=alpha, ax=ax)
-    
-    if len(G.nodes()) <= 50:
-        node_labels = {}
-        for node in G.nodes():
-            if node == model.anthill:
-                deposited = model.food_at_deposits.get(model.anthill, 0)
-                node_labels[node] = f"HOME\n{deposited}"
-            else:
-                initial = model.initial_food_values[node]
-                current = model.food_values[node]
-                node_labels[node] = f"id{node}\n{current}/{initial}"
-        
-        nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=8, font_weight='bold', ax=ax)
+    if len(graph.nodes()) <= 30:
+        node_labels = build_node_labels(model, graph)
+        nx.draw_networkx_labels(graph, node_positions, labels=node_labels, 
+                               font_size=7, font_weight='normal', font_family='sans-serif', ax=axes)
 
-    ant_positions = {}
-    for ant in model.agents:
-        if ant.position not in ant_positions:
-            ant_positions[ant.position] = {'total': 0, 'carrying': 0}
-        ant_positions[ant.position]['total'] += 1
-        if ant.carrying_food:
-            ant_positions[ant.position]['carrying'] += 1
-            
-    for position, counts in ant_positions.items():
-        if position not in pos: continue
-        x, y = pos[position]
-        
-        if position == model.anthill:
-            ax.text(x, y - 0.08, f"ANT x{counts['total']}", 
-                   fontsize=12, ha='center', va='center', fontweight='bold',
-                   bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.9, edgecolor='black'), zorder=30)
-        else:
-            if counts['carrying'] > 0:
-                ax.plot(x, y, marker='D', markersize=10, color='#8B4513', markeredgecolor='white', markeredgewidth=1.5, zorder=15, alpha=0.7)
-            else:
-                ax.plot(x, y, marker='o', markersize=8, color='black', markeredgecolor='white', markeredgewidth=1.5, zorder=15, alpha=0.7)
+    ants_at_each_node = count_ants_at_nodes(model)
+    draw_ant_markers(model, node_positions, axes, ants_at_each_node)
 
-
-
-    ax.set_title(f"Collected: {model.total_food_collected} of {model.initial_food}", fontsize=12)
+    axes.set_title(f"Food Collected: {model.total_food_collected} / {model.total_initial_food}", 
+                   fontsize=10, fontweight='normal', color='#2c3e50', pad=10)
+    axes.legend(
+        handles=create_legend_elements(), loc='upper right', fontsize=7, 
+        framealpha=0.9, edgecolor='#ecf0f1', fancybox=False,
+        handlelength=1.2, handleheight=0.8, 
+        borderpad=0.4, labelspacing=0.4
+    )
     
-    legend_elements = [
-        Line2D([0], [0], marker='o', color='w', markerfacecolor=shared_config.color_anthill, markersize=8, label='Anthill'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor=shared_config.color_food, markersize=8, label='Food'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor=shared_config.color_empty, markersize=8, label='Empty'),
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='black', markersize=5, label='Ant searching'),
-        Line2D([0], [0], marker='D', color='w', markerfacecolor='#8B4513', markersize=5, label='Ant carrying'),
-    ]
-    
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=8, 
-              framealpha=0.6, edgecolor='gray', 
-              handlelength=1, handleheight=0.7, 
-              borderpad=0.3, labelspacing=0.3)
-    
-    ax.axis('off')
+    axes.axis('off')
     plt.tight_layout()    
-    solara.FigureMatplotlib(fig)
-    plt.close(fig)
+    solara.FigureMatplotlib(figure)
+    plt.close(figure)
 
 
-def MainLayout(model):
-    
+def main_layout(model):
     with solara.Row(gap="20px", style={"width": "75vw", "height": "80vh"}):
         with solara.Column(gap="15px", style={"flex": "1", "padding": "10px"}):
-            GraphVisualization(model)            
+            graph_visualization(model)            
             
         with solara.Column(gap="15px", style={"flex": "1", "padding": "10px"}):
-            if isinstance(plot_component, (tuple, list)):
-                plot_component[0](model)
+            if isinstance(food_collection_plot, (tuple, list)):
+                food_collection_plot[0](model)
             else:
-                plot_component(model)   
+                food_collection_plot(model)   
             
-            AntPosTable(model)      
+            ant_activity_table(model)
 
 
-def AntPosTable(model):
+def format_ant_position(ant, model):
+    if ant.previous_node is not None and ant.previous_node != ant.current_node:
+        previous_label = "H" if ant.previous_node == model.anthill_node else str(ant.previous_node)
+        current_label = "H" if ant.current_node == model.anthill_node else str(ant.current_node)
+        return f"{previous_label}→{current_label}"
+    return "H" if ant.current_node == model.anthill_node else str(ant.current_node)
+
+
+def format_ant_status(ant):
+    if ant.is_carrying_food:
+        return "<span style='color:#4ade80'>Carrying</span>"
+    return "Searching"
+
+
+def build_table_row(ants_in_row, row_start, model, ants_per_row):
+    table_cells = []
+    for ant_index, ant in enumerate(ants_in_row, start=row_start + 1):
+        status_text = format_ant_status(ant)
+        position_text = format_ant_position(ant, model)
+        table_cells.append(
+            f"<td style='color:#e94560'>{ant_index}</td>"
+            f"<td>{position_text}</td>"
+            f"<td>{status_text}</td>"
+        )
+    
+    while len(table_cells) < ants_per_row:
+        table_cells.append("<td></td><td></td><td></td>")
+    
+    return f"<tr>{''.join(table_cells)}</tr>"
+
+
+def ant_activity_table(model):
     with solara.Card("Ant Activity"):
-        ants = list(model.agents)
-        rows = []
-        ct = 4
+        all_ants = list(model.agents)
+        table_rows = []
+        ants_per_row = 4
         
-        for i in range(0, len(ants), ct):
-            group = ants[i:i+ct]
-            cells = []
-            for j, ant in enumerate(group, start=i+1):
-                if ant.carrying_food:
-                    status = "<span style='color:#4ade80'>Carrying</span>"
-                else:
-                    status = "Searching"
-                if ant.previous_position is not None and ant.previous_position != ant.position:
-                    prev = "H" if ant.previous_position == model.anthill else str(ant.previous_position)
-                    curr = "H" if ant.position == model.anthill else str(ant.position)
-                    pos = f"{prev}→{curr}"
-                else:
-                    pos = "H" if ant.position == model.anthill else str(ant.position)
-                cells.append(f"<td style='color:#e94560'>{j}</td><td>{pos}</td><td>{status}</td>")
-            
-            while len(cells) < ct:
-                cells.append("<td></td><td></td><td></td>")
-            rows.append(f"<tr>{''.join(cells)}</tr>")
+        for row_start in range(0, len(all_ants), ants_per_row):
+            ants_in_row = all_ants[row_start:row_start + ants_per_row]
+            table_rows.append(build_table_row(ants_in_row, row_start, model, ants_per_row))
         
-        html = f"""
+        table_html = f"""
         <table style='font-size: 11px; border-collapse: collapse; width: 100%; text-align: center;'>
             <thead><tr>
                 <th>Ant</th><th>Tr</th><th>St</th>
@@ -186,13 +262,14 @@ def AntPosTable(model):
                 <th>Ant</th><th>Tr</th><th>St</th>
                 <th>Ant</th><th>Tr</th><th>St</th>
             </tr></thead>
-            <tbody>{''.join(rows)}</tbody>
+            <tbody>{''.join(table_rows)}</tbody>
         </table>"""
-        solara.HTML(tag="div", unsafe_innerHTML=html)
+        solara.HTML(tag="div", unsafe_innerHTML=table_html)
+
 
 if __name__ == "__main__":
     
-    model_params = {
+    model_parameters = {
         "num_nodes": {
             "type": "SliderInt",
             "value": 81,
@@ -262,13 +339,12 @@ if __name__ == "__main__":
         },
     }
     
-    plot_component = make_plot_component(["Food Collected"])
-    initial_params = {key: param["value"] for key, param in model_params.items()}
+    food_collection_plot = make_plot_component(["Food Collected"])
+    initial_parameter_values = {key: param["value"] for key, param in model_parameters.items()}
     
     page = SolaraViz(
-        model=AntColonyModel(**initial_params),
-        components=[MainLayout],
-        model_params=model_params,
+        model=AntColonyModel(**initial_parameter_values),
+        components=[main_layout],
+        model_params=model_parameters,
         name="Topic 4 - Ant Colony Optimization"
-        #render_interval=1
     )
